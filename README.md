@@ -25,12 +25,13 @@ The frontend is a React and Vite coding workspace that provides:
 ### Frontend structure
 
 ```text
-src/
-├── components/    # React workspace components
-├── App.jsx        # Frontend application state and layout
-├── App.css        # Application styles
-├── index.css      # Global styles
-└── main.jsx       # React entry point
+frontend/
+└── src/
+    ├── components/    # React workspace components
+    ├── App.jsx        # Frontend application state and layout
+    ├── App.css        # Application styles
+    ├── index.css      # Global styles
+    └── main.jsx       # React entry point
 ```
 
 ### Frontend setup
@@ -42,6 +43,7 @@ src/
 #### Installation
 
 ```bash
+cd frontend
 npm install
 ```
 
