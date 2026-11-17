@@ -1,77 +1,95 @@
 
-import { useState } from 'react';
+import { useEffect, useState } from "react";
 
-const API_URL = 'http://127.0.0.1:8001';
+const API_URL = "http://127.0.0.1:8001";
 
 function CodeEditor({
   project,
   settings,
   onSaveCode,
-  onReviewComplete
+  onReviewComplete,
 }) {
   const [language, setLanguage] = useState(
-    project?.language || settings?.defaultLanguage || 'Python'
+    project?.language || settings?.defaultLanguage || "Python"
   );
 
-  const [code, setCode] = useState(project?.code || '');
+  const [code, setCode] = useState(project?.code || "");
   const [review, setReview] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const lines = code ? code.split('\n').length : 0;
+  // Update the editor when another project is selected.
+  useEffect(() => {
+    setCode(project?.code || "");
+    setLanguage(
+      project?.language || settings?.defaultLanguage || "Python"
+    );
+    setReview(null);
+  }, [project?.id]);
+
+  const lines = code ? code.split("\n").length : 0;
   const characters = code.length;
 
-  // Save code inside the selected project
   function saveCode() {
     if (!project) {
-      alert('Open a project first to save your code.');
+      alert("Open a project first to save your code.");
       return;
     }
 
-    onSaveCode(project.id, code, language);
-    alert('Code and language saved successfully!');
+    if (typeof onSaveCode === "function") {
+      onSaveCode(project.id, code, language);
+      alert("Code saved successfully!");
+    }
   }
 
-  // Send Python code to FastAPI and LangGraph
+  function clearCode() {
+    if (loading || !code.trim()) return;
+
+    if (window.confirm("Clear all code from the editor?")) {
+      setCode("");
+      setReview(null);
+    }
+  }
+
+  // Send code to FastAPI -> LangGraph -> Ollama -> Validator.
   async function reviewCode() {
+    if (loading) return;
+
     if (!code.trim()) {
       setReview({
-        error: 'Please enter some code before starting a review.'
+        error: "Please enter Python code before reviewing.",
       });
       return;
     }
 
-    if (language !== 'Python') {
+    if (language.toLowerCase() !== "python") {
       setReview({
-        error: 'AI code review currently supports Python only.'
+        error: "AI code review currently supports Python only.",
       });
       return;
     }
-
-    if (loading) return;
 
     setLoading(true);
     setReview(null);
 
     try {
       const response = await fetch(`${API_URL}/run-agent`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json'
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify({ code })
+        body: JSON.stringify({ code }),
       });
 
       if (!response.ok) {
-        let message = `Backend error: ${response.status}`;
+        let message = `Backend returned HTTP ${response.status}`;
 
         try {
           const errorData = await response.json();
-
-          if (typeof errorData.detail === 'string') {
-            message = errorData.detail;
+          if (errorData.detail) {
+            message = String(errorData.detail);
           }
         } catch {
-          // Keep the original HTTP error message
+          // Keep the original error message.
         }
 
         throw new Error(message);
@@ -79,174 +97,97 @@ function CodeEditor({
 
       const data = await response.json();
 
-      // Extract the AI review from the LangGraph response
-      const aiResult =
-        data.ai_review?.ai_review ||
-        data.ai_review ||
-        {};
+      // LangGraph currently wraps the Ollama response
+      // inside another "ai_review" object.
+      const aiData = data.ai_review?.ai_review
+        ?? data.ai_review
+        ?? {};
 
-      const correctedCode =
-        data.corrected_code ||
-        aiResult.corrected_code ||
-        '';
+      const bugFound = aiData.bug_found === true;
 
-      const validation = data.validation_result || {};
-      const syntax = data.syntax_result || {};
-
-      const aiText = [
-        `Bug Found: ${aiResult.bug_found ?? 'Unknown'}`,
-        `Bug Type: ${aiResult.bug_type || 'Unknown'}`,
-        `Severity: ${aiResult.severity || 'Unknown'}`,
-        '',
-        'Explanation:',
-        aiResult.explanation || 'No explanation provided.',
-        '',
-        'Corrected Code:',
-        correctedCode || 'No corrected code returned.',
-        '',
-        'Syntax Analysis:',
-        JSON.stringify(syntax, null, 2),
-        '',
-        'Validation:',
-        validation.message ||
-          validation.status ||
-          'No validation result available.'
-      ].join('\n');
-
-      // Create the review report
       const report = {
         id: Date.now(),
-        projectName: project?.name || 'Untitled Code',
+        projectName: project?.name || "Untitled Code",
         language,
         date: new Date().toLocaleString(),
-        lines: code.split('\n').length,
-        issues: [],
-        notice: '',
-        aiReview: aiText,
-        correctedCode,
-        validationResult: validation,
-        syntaxResult: syntax
+        lines: code.split("\n").length,
+        issues: bugFound
+          ? [{
+              severity: aiData.severity || "medium",
+              message: aiData.explanation || "Bug detected",
+              line: "Not specified",
+              suggestion: aiData.corrected_code || "",
+            }]
+          : [],
+        notice: "",
+        syntaxResult: data.syntax_result ?? null,
+        aiReview: aiData,
+        bugFound,
+        bugType: aiData.bug_type || "none",
+        severity: aiData.severity || "none",
+        explanation: aiData.explanation || "",
+        correctedCode:
+          data.corrected_code
+          || aiData.corrected_code
+          || "",
+        validationResult: data.validation_result ?? null,
+        originalCode: code,
       };
 
       setReview(report);
 
-      // Save review to history if callback is provided
-      if (typeof onReviewComplete === 'function') {
+      if (typeof onReviewComplete === "function") {
         onReviewComplete(report);
       }
-
     } catch (error) {
       setReview({
-        error: `AI review failed: ${error.message}`
+        error:
+          error instanceof TypeError
+            ? "Failed to connect to FastAPI. Check that the backend is running on port 8001 and CORS allows this frontend."
+            : `AI review failed: ${error.message}`,
       });
-
     } finally {
       setLoading(false);
     }
   }
 
-  // Clear editor content
-  function clearCode() {
-    if (!code.trim() || loading) return;
-
-    const confirmed = window.confirm(
-      'Are you sure you want to clear the editor?'
-    );
-
-    if (!confirmed) return;
-
-    setCode('');
-    setReview(null);
-  }
-
-  // Severity summary
-  const highIssues =
-    review?.issues?.filter(
-      (issue) => issue.severity === 'High'
-    ).length || 0;
-
-  const mediumIssues =
-    review?.issues?.filter(
-      (issue) => issue.severity === 'Medium'
-    ).length || 0;
-
-  const lowIssues =
-    review?.issues?.filter(
-      (issue) => issue.severity === 'Low'
-    ).length || 0;
-
   return (
-    <section className="editor-page code-editor-page">
-
-      {/* Page heading */}
-      <div className="editor-heading">
+    <section className="code-editor-page">
+      <div className="editor-header">
         <div>
-          <p className="editor-eyebrow">
-            DEVELOPMENT WORKSPACE
+          <p className="editor-eyebrow">AI CODING AGENT</p>
+          <h1>Code Editor</h1>
+          <p>
+            Write Python code and let LangGraph and Ollama
+            analyze it for bugs.
           </p>
-
-          <h1>
-            {project ? project.name : 'Code Editor'}
-          </h1>
-
-          <p>Write, analyze and improve your code.</p>
-        </div>
-
-        {project && (
-          <span className="editor-project-badge">
-            {project.status || 'Active'} Project
-          </span>
-        )}
-      </div>
-
-      {/* Editor toolbar */}
-      <div className="editor-toolbar editor-toolbar-upgraded">
-        <div className="editor-language-control">
-          <label htmlFor="editor-language">
-            Language
-          </label>
-
-          <select
-            id="editor-language"
-            value={language}
-            disabled={loading}
-            onChange={(event) => {
-              setLanguage(event.target.value);
-              setReview(null);
-            }}
-          >
-            <option>Python</option>
-            <option>C++</option>
-            <option>JavaScript</option>
-            <option>Java</option>
-            <option>React</option>
-          </select>
-        </div>
-
-        <div className="editor-toolbar-actions">
-          <button
-            className="editor-clear-button"
-            onClick={clearCode}
-            disabled={!code || loading}
-          >
-            Clear Code
-          </button>
         </div>
       </div>
 
-      {/* Editor panel */}
-      <div className="editor-workspace">
-        <div className="editor-panel-heading">
-          <div className="editor-panel-title">
-            <span className="editor-dot purple-dot"></span>
-            <span className="editor-dot yellow-dot"></span>
-            <span className="editor-dot green-dot"></span>
+      <div className="editor-toolbar">
+        <div>
+          <span>Project: </span>
+          <strong>{project?.name || "Untitled Code"}</strong>
+        </div>
 
-            <strong>
-              {project?.name || 'untitled'}
-            </strong>
-          </div>
+        <select
+          value={language}
+          onChange={(event) => {
+            setLanguage(event.target.value);
+            setReview(null);
+          }}
+          disabled={loading}
+        >
+          <option value="Python">Python</option>
+          <option value="JavaScript">JavaScript</option>
+          <option value="Java">Java</option>
+          <option value="C++">C++</option>
+        </select>
+      </div>
 
+      <div className="editor-container">
+        <div className="editor-file-header">
+          <span>main.py</span>
           <span className="editor-language-label">
             {language}
           </span>
@@ -255,18 +196,21 @@ function CodeEditor({
         <textarea
           className="code-editor-textarea"
           value={code}
-          disabled={loading}
           onChange={(event) => {
             setCode(event.target.value);
             setReview(null);
           }}
-          placeholder={`// Start writing your ${language} code here...`}
+          placeholder="Write your Python code here..."
+          disabled={loading}
           spellCheck={false}
           autoCapitalize="off"
           autoComplete="off"
           autoCorrect="off"
           style={{
-            fontSize: `${settings?.fontSize || '14'}px`
+            fontSize: `${settings?.fontSize || 14}px`,
+            minHeight: "350px",
+            width: "100%",
+            fontFamily: "monospace",
           }}
         />
 
@@ -277,16 +221,13 @@ function CodeEditor({
         </div>
       </div>
 
-      {/* Editor actions */}
       <div className="editor-actions editor-actions-upgraded">
         <button
           className="review-button"
           onClick={reviewCode}
           disabled={loading}
         >
-          {loading
-            ? 'Analyzing with AI...'
-            : 'Review Code →'}
+          {loading ? "Analyzing with AI..." : "Review Code →"}
         </button>
 
         {project && (
@@ -298,34 +239,39 @@ function CodeEditor({
             Save Project
           </button>
         )}
+
+        <button
+          type="button"
+          onClick={clearCode}
+          disabled={loading || !code.trim()}
+        >
+          Clear Code
+        </button>
       </div>
 
       <p className="editor-disclaimer">
-        Python code reviews are sent to the FastAPI backend
-        for AI-powered analysis using Ollama and LangGraph.
-        Other languages are not supported yet.
+        Python code reviews are sent to FastAPI for AI-powered
+        analysis using LangGraph and Ollama. Other languages
+        are not supported yet.
       </p>
 
-      {/* Loading message */}
       {loading && (
         <div className="review-result upgraded-review-result">
           <h3>AI is reviewing your code...</h3>
           <p>
-            Please wait while the AI model analyzes your code.
+            Ollama is analyzing your code and LangGraph is
+            validating the suggested correction.
           </p>
         </div>
       )}
 
-      {/* Review results */}
       {review && (
         <div className="review-result upgraded-review-result">
-
           <div className="review-result-heading">
             <div>
               <p className="editor-eyebrow">
                 ANALYSIS REPORT
               </p>
-
               <h2>Review Results</h2>
             </div>
 
@@ -350,84 +296,120 @@ function CodeEditor({
 
                 <div>
                   <strong>
-                    {review.issues.length
-                      ? review.issues.length
-                      : '—'}
+                    {review.bugFound ? "Yes" : "No"}
                   </strong>
-                  <span>Structured Issues</span>
+                  <span>Bug Detected</span>
                 </div>
 
                 <div>
-                  <strong>
-                    {review.issues.length
-                      ? highIssues
-                      : '—'}
-                  </strong>
-                  <span>High</span>
+                  <strong>{review.bugType}</strong>
+                  <span>Bug Type</span>
                 </div>
 
                 <div>
-                  <strong>
-                    {review.issues.length
-                      ? mediumIssues + lowIssues
-                      : '—'}
-                  </strong>
-                  <span>Other Issues</span>
+                  <strong>{review.severity}</strong>
+                  <span>Severity</span>
                 </div>
               </div>
 
-              {/* AI-generated review */}
-              {review.aiReview && (
-                <div className="editor-issues-list">
-                  <h3>AI Code Review</h3>
+              <div className="editor-issues-list">
+                <h3>1. Python Syntax Analysis</h3>
 
-                  <div className="issue-card">
-                    <pre
-                      style={{
-                        whiteSpace: 'pre-wrap',
-                        overflowWrap: 'anywhere',
-                        fontFamily: 'inherit',
-                        lineHeight: '1.7',
-                        margin: 0
-                      }}
-                    >
-                      {review.aiReview}
-                    </pre>
-                  </div>
+                <div className="issue-card">
+                  <p>
+                    <strong>Status: </strong>
+                    {review.syntaxResult?.status || "Unknown"}
+                  </p>
+
+                  <p>
+                    {review.syntaxResult?.message
+                      || "No syntax message returned."}
+                  </p>
                 </div>
-              )}
+              </div>
 
-              {review.notice && (
-                <p className="editor-notice">
-                  {review.notice}
-                </p>
-              )}
+              <div className="editor-issues-list">
+                <h3>2. AI Bug Detection</h3>
 
-              {/* Structured issues, if available */}
-              {review.issues.length > 0 && (
-                <div className="editor-issues-list">
-                  <h3>Detected Issues</h3>
+                <div className="issue-card">
+                  <p>
+                    <strong>Bug Found: </strong>
+                    {review.bugFound ? "Yes" : "No"}
+                  </p>
 
-                  {review.issues.map((issue, index) => (
-                    <div
-                      className="issue-card"
-                      key={index}
-                    >
-                      <span
-                        className={`severity ${issue.severity.toLowerCase()}`}
+                  <p>
+                    <strong>Type: </strong>
+                    {review.bugType}
+                  </p>
+
+                  <p>
+                    <strong>Severity: </strong>
+                    {review.severity}
+                  </p>
+
+                  <p>
+                    <strong>Explanation:</strong>
+                  </p>
+
+                  <p>
+                    {review.explanation
+                      || "No explanation returned by the AI."}
+                  </p>
+                </div>
+              </div>
+
+              <div className="editor-issues-list">
+                <h3>3. Suggested Corrected Code</h3>
+
+                <div className="issue-card">
+                  {review.correctedCode ? (
+                    <>
+                      <pre
+                        style={{
+                          whiteSpace: "pre-wrap",
+                          overflowWrap: "anywhere",
+                          fontFamily: "monospace",
+                          lineHeight: 1.7,
+                        }}
                       >
-                        {issue.severity}
-                      </span>
+                        {review.correctedCode}
+                      </pre>
 
-                      <h3>{issue.message}</h3>
-                      <p>Line: {issue.line}</p>
-                      <p>
-                        Suggested fix: {issue.suggestion}
-                      </p>
-                    </div>
-                  ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(
+                            review.correctedCode
+                          );
+                        }}
+                      >
+                        Copy Corrected Code
+                      </button>
+                    </>
+                  ) : (
+                    <p>
+                      No corrected code was returned.
+                    </p>
+                  )}
                 </div>
-              )}
+              </div>
+
+              <div className="editor-issues-list">
+                <h3>4. Code Validation</h3>
+
+                <div className="issue-card">
+                  <p>
+                    <strong>Status: </strong>
+                    {review.validationResult?.status
+                      || "Unknown"}
+                  </p>
+
+                  <p>
+                    {review.validationResult?.message
+                      || "No validation result returned."}
+                  </p>
+                </div>
+              </div>
 
               <p className="editor-review-date">
                 Reviewed on: {review.date}

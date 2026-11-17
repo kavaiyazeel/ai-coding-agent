@@ -8,7 +8,6 @@ from .analyzer import check_syntax
 from .agent_graph import run_agent
 
 
-# Create the FastAPI application
 app = FastAPI(
     title="AI Coding Agent",
     description="AI Coding Agent Backend",
@@ -16,12 +15,16 @@ app = FastAPI(
 )
 
 
-# Allow React frontend to communicate with FastAPI
+# Allow React frontend to connect to FastAPI
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "http://127.0.0.1:5173"
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5175",
     ],
     allow_credentials=False,
     allow_methods=["GET", "POST"],
@@ -42,13 +45,13 @@ def home():
     }
 
 
-# Syntax analysis endpoint
+# Python syntax analysis
 @app.post("/analyze")
 def analyze_code(request: CodeRequest):
     return check_syntax(request.code)
 
 
-# Ollama AI review endpoint
+# Ollama AI review
 @app.post("/ai-review")
 def ai_review(request: CodeRequest):
     try:
@@ -63,7 +66,7 @@ def ai_review(request: CodeRequest):
         ) from e
 
 
-# Complete LangGraph workflow endpoint
+# Complete LangGraph AI workflow
 @app.post("/run-agent")
 def run_code(request: CodeRequest):
     try:
