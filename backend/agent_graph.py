@@ -31,27 +31,15 @@ def syntax_analysis(state: AgentState):
 
 
 # --------------------------------------------------
-# STEP 2: AI REVIEW
+# STEP 2: AI BUG DETECTION
 # --------------------------------------------------
 
 def ai_bug_detection(state: AgentState):
 
     code = state["code"]
-    syntax_result = state["syntax_result"]
 
-    # If syntax is already correct,
-    # don't ask AI to find a bug.
-    if syntax_result.get("status") == "success":
-
-        return {
-            "ai_review": {
-                "bug_found": False,
-                "message": "No syntax error found",
-                "corrected_code": code
-            }
-        }
-
-    # If syntax has an error, send code to AI
+    # Always send code to Ollama for AI analysis.
+    # Valid syntax does not mean the code has no bugs.
     result = review_code(code)
 
     return {
@@ -60,7 +48,7 @@ def ai_bug_detection(state: AgentState):
 
 
 # --------------------------------------------------
-# STEP 3: GET CORRECTED CODE
+# STEP 3: GENERATE / EXTRACT FIX
 # --------------------------------------------------
 
 def generate_fix(state: AgentState):
@@ -69,19 +57,22 @@ def generate_fix(state: AgentState):
 
     corrected_code = ""
 
-    # review_code may return:
-    # {"corrected_code": "..."}
     if isinstance(ai_result, dict):
 
-        corrected_code = ai_result.get("corrected_code", "")
+        # Support direct AI response
+        corrected_code = ai_result.get(
+            "corrected_code", ""
+        )
 
-        # If corrected_code is inside ai_review
+        # Support nested AI response
         if not corrected_code:
 
             nested = ai_result.get("ai_review", {})
 
             if isinstance(nested, dict):
-                corrected_code = nested.get("corrected_code", "")
+                corrected_code = nested.get(
+                    "corrected_code", ""
+                )
 
     return {
         "corrected_code": corrected_code
@@ -95,9 +86,29 @@ def generate_fix(state: AgentState):
 def validate_fix(state: AgentState):
 
     corrected_code = state.get("corrected_code", "")
+    ai_result = state.get("ai_review", {})
 
+    # Handle nested AI response
+    if isinstance(ai_result, dict):
+        review = ai_result.get("ai_review", ai_result)
+    else:
+        review = {}
+
+    # No bug detected and no correction needed
+    if (
+        isinstance(review, dict)
+        and review.get("bug_found") is False
+        and not corrected_code
+    ):
+        return {
+            "validation_result": {
+                "status": "not_required",
+                "message": "No correction required"
+            }
+        }
+
+    # AI did not return corrected code
     if not corrected_code:
-
         return {
             "validation_result": {
                 "status": "error",
@@ -105,6 +116,7 @@ def validate_fix(state: AgentState):
             }
         }
 
+    # Validate corrected code using AST
     result = validate_code(corrected_code)
 
     return {
@@ -120,17 +132,47 @@ def build_agent_graph():
 
     graph = StateGraph(AgentState)
 
-    graph.add_node("syntax_analysis", syntax_analysis)
-    graph.add_node("ai_bug_detection", ai_bug_detection)
-    graph.add_node("generate_fix", generate_fix)
-    graph.add_node("validate_fix", validate_fix)
+    graph.add_node(
+        "syntax_analysis",
+        syntax_analysis
+    )
+
+    graph.add_node(
+        "ai_bug_detection",
+        ai_bug_detection
+    )
+
+    graph.add_node(
+        "generate_fix",
+        generate_fix
+    )
+
+    graph.add_node(
+        "validate_fix",
+        validate_fix
+    )
 
     graph.set_entry_point("syntax_analysis")
 
-    graph.add_edge("syntax_analysis", "ai_bug_detection")
-    graph.add_edge("ai_bug_detection", "generate_fix")
-    graph.add_edge("generate_fix", "validate_fix")
-    graph.add_edge("validate_fix", END)
+    graph.add_edge(
+        "syntax_analysis",
+        "ai_bug_detection"
+    )
+
+    graph.add_edge(
+        "ai_bug_detection",
+        "generate_fix"
+    )
+
+    graph.add_edge(
+        "generate_fix",
+        "validate_fix"
+    )
+
+    graph.add_edge(
+        "validate_fix",
+        END
+    )
 
     return graph.compile()
 
@@ -157,8 +199,12 @@ def run_agent(code: str):
 
 if __name__ == "__main__":
 
-    buggy_code = """def add(a, b)
-    return a + b"""
+    buggy_code = """
+def add(a, b):
+    return a - b
+
+print(add(5, 3))
+"""
 
     result = run_agent(buggy_code)
 
