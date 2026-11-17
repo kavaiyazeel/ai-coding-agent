@@ -7,6 +7,10 @@ from .ai_agent import review_code
 from .validator import validate_code
 
 
+# --------------------------------------------------
+# AGENT STATE
+# --------------------------------------------------
+
 class AgentState(TypedDict, total=False):
     code: str
     syntax_result: dict
@@ -16,7 +20,7 @@ class AgentState(TypedDict, total=False):
 
 
 # --------------------------------------------------
-# STEP 1: CHECK SYNTAX
+# STEP 1: SYNTAX ANALYSIS
 # --------------------------------------------------
 
 def syntax_analysis(state: AgentState):
@@ -38,8 +42,8 @@ def ai_bug_detection(state: AgentState):
 
     code = state["code"]
 
-    # Always send code to Ollama for AI analysis.
-    # Valid syntax does not mean the code has no bugs.
+    # Always review the code using Ollama.
+    # Valid syntax does not guarantee correct logic.
     result = review_code(code)
 
     return {
@@ -48,23 +52,22 @@ def ai_bug_detection(state: AgentState):
 
 
 # --------------------------------------------------
-# STEP 3: GENERATE / EXTRACT FIX
+# STEP 3: EXTRACT CORRECTED CODE
 # --------------------------------------------------
 
 def generate_fix(state: AgentState):
 
-    ai_result = state["ai_review"]
+    ai_result = state.get("ai_review", {})
 
     corrected_code = ""
 
     if isinstance(ai_result, dict):
 
-        # Support direct AI response
         corrected_code = ai_result.get(
             "corrected_code", ""
         )
 
-        # Support nested AI response
+        # Handle nested response from ai_agent.py
         if not corrected_code:
 
             nested = ai_result.get("ai_review", {})
@@ -94,7 +97,7 @@ def validate_fix(state: AgentState):
     else:
         review = {}
 
-    # No bug detected and no correction needed
+    # No bug found, so no correction is required
     if (
         isinstance(review, dict)
         and review.get("bug_found") is False
@@ -107,16 +110,16 @@ def validate_fix(state: AgentState):
             }
         }
 
-    # AI did not return corrected code
+    # AI did not provide corrected code
     if not corrected_code:
         return {
             "validation_result": {
                 "status": "error",
-                "message": "No corrected code was returned by AI"
+                "message": "No corrected code returned by AI"
             }
         }
 
-    # Validate corrected code using AST
+    # Check corrected code syntax
     result = validate_code(corrected_code)
 
     return {
@@ -125,7 +128,7 @@ def validate_fix(state: AgentState):
 
 
 # --------------------------------------------------
-# BUILD LANGGRAPH
+# BUILD LANGGRAPH WORKFLOW
 # --------------------------------------------------
 
 def build_agent_graph():
@@ -199,12 +202,20 @@ def run_agent(code: str):
 
 if __name__ == "__main__":
 
-    buggy_code = """
-def add(a, b):
-    return a - b
+    # Logical bug test:
+    # The function should multiply,
+    # but it incorrectly adds the numbers.
 
-print(add(5, 3))
+    buggy_code = """
+def multiply(a, b):
+    return a + b
+
+print(multiply(4, 5))
 """
+
+    print("\n==============================")
+    print("ORIGINAL CODE:")
+    print(buggy_code)
 
     result = run_agent(buggy_code)
 
