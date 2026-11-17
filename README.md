@@ -71,6 +71,7 @@ The backend is a FastAPI application with these endpoints:
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /` | Check that the backend is running |
+| `GET /health` | Check backend service health |
 | `POST /analyze` | Validate Python syntax |
 | `POST /ai-review` | Request an AI-powered Python code review |
 

@@ -45,6 +45,14 @@ def home():
     }
 
 
+@app.get("/health")
+def health_check():
+    return {
+        "status": "ok",
+        "service": "ai-coding-agent-backend"
+    }
+
+
 # Python syntax analysis
 @app.post("/analyze")
 def analyze_code(request: CodeRequest):
