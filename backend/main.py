@@ -15,12 +15,16 @@ app = FastAPI(
 )
 
 
-# Allow React frontend to communicate with FastAPI
+# Allow React frontend to connect to FastAPI
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "http://127.0.0.1:5173"
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5175",
     ],
     allow_credentials=False,
     allow_methods=["GET", "POST"],
@@ -28,11 +32,12 @@ app.add_middleware(
 )
 
 
+# Request model
 class CodeRequest(BaseModel):
     code: str
 
 
-# HOME
+# Home endpoint
 @app.get("/")
 def home():
     return {
@@ -48,13 +53,13 @@ def health_check():
     }
 
 
-# SYNTAX ANALYSIS
+# Python syntax analysis
 @app.post("/analyze")
 def analyze_code(request: CodeRequest):
     return check_syntax(request.code)
 
 
-# OLLAMA AI REVIEW
+# Ollama AI review
 @app.post("/ai-review")
 def ai_review(request: CodeRequest):
     try:
@@ -69,7 +74,7 @@ def ai_review(request: CodeRequest):
         ) from e
 
 
-# COMPLETE LANGGRAPH WORKFLOW
+# Complete LangGraph AI workflow
 @app.post("/run-agent")
 def run_code(request: CodeRequest):
     try:
